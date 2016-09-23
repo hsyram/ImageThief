@@ -12,15 +12,12 @@
     android:gravity="center"
     tools:context="com.idtmessaging.imagethief.MainActivity">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Hello World!" />
     <EditText
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:id="@+id/et_url"
-        android:hint="@string/download_hint"/>
+        android:inputType="textUri"
+        android:scrollHorizontally="true"
+        android:id="@+id/et_url"/>
     <Button
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

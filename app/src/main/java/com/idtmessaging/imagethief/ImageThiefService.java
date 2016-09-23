@@ -1,10 +1,11 @@
 package com.idtmessaging.imagethief;
 
 import android.app.IntentService;
-import android.content.Intent;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
 import android.os.Environment;
 import android.support.annotation.Nullable;
 import android.util.Log;
@@ -14,6 +15,7 @@ import com.idtmessaging.imagethief.util.ImageModel;
 import com.idtmessaging.imagethief.util.ImageMutableRepository;
 import com.idtmessaging.imagethief.util.ImageResizer;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileDescriptor;
 import java.io.FileInputStream;
@@ -26,6 +28,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
 import static android.os.Environment.DIRECTORY_PICTURES;
+import static com.idtmessaging.imagethief.util.ImageResizer.calculateInSampleSize;
 
 /**
  * An {@link IntentService} subclass for handling asynchronous image download requests in
@@ -39,12 +42,13 @@ public class ImageThiefService extends IntentService {
 
     public static final String EXTRA_PARAM_URL = "com.idtmessaging.imagethief.extra.PARAM_URL";
 
+    private static final int IMAGE_MAX_DIMEN = 500;
+
     private DiskLruCache mDiskLruCache;
     private final Object mDiskCacheLock = new Object();
     private boolean mDiskCacheStarting = true;
     private static final int DISK_CACHE_SIZE = 1024 * 1024 * 10; // 10MB
     private static final String DISK_CACHE_SUBDIR = "images";
-
 
 
     public ImageThiefService() {
@@ -69,7 +73,7 @@ public class ImageThiefService extends IntentService {
     protected void onHandleIntent(Intent intent) {
         if (intent != null) {
 
-            if(mDiskLruCache == null) {
+            if (mDiskLruCache == null) {
                 synchronized (mDiskCacheLock) {
                     File cacheDir = getDiskCacheDir(DISK_CACHE_SUBDIR);
                     if (cacheDir == null) {
@@ -101,11 +105,12 @@ public class ImageThiefService extends IntentService {
      */
     private void handleActionDownload(String imageUrl) {
         ImageModel imageModel = new ImageModel();
+        imageModel.setUrl(imageUrl);
         OutputStream output = null;
         try {
             // Check disk cache in background thread
             Bitmap bitmap = getBitmapFromDiskCache(imageUrl);
-            Log.d(TAG, "handleActionDownload cache:"+(bitmap == null));
+            Log.d(TAG, "handleActionDownload cache:" + (bitmap == null));
 
             if (bitmap == null) { // Not found in disk cache
                 // Process as normal
@@ -117,10 +122,10 @@ public class ImageThiefService extends IntentService {
                 connection.connect();
                 InputStream input = connection.getInputStream();
 
-                String baseName = imageUrl.substring( imageUrl.lastIndexOf('/')+1, imageUrl.length() );
-                Log.d(TAG, "image name:"+baseName);
-                File image = getPictureDir(System.currentTimeMillis()+baseName);
-                if(image != null) {
+                String baseName = imageUrl.substring(imageUrl.lastIndexOf('/') + 1, imageUrl.length());
+                Log.d(TAG, "image name:" + baseName);
+                File image = getPictureDir(System.currentTimeMillis() + baseName);
+                if (image != null) {
                     output = new FileOutputStream(image);
                     byte[] buffer = new byte[4 * 1024]; // or other buffer size
                     int read;
@@ -129,28 +134,39 @@ public class ImageThiefService extends IntentService {
                         output.write(buffer, 0, read);
                     }
                     output.flush();
-                    imageModel.setName(image.getAbsolutePath());
+                    imageModel.setUri(this, image.getAbsolutePath());
 
+                    Bitmap tempBittmap = ImageResizer.decodeSampledBitmapFromFile(image.getAbsolutePath(), IMAGE_MAX_DIMEN, IMAGE_MAX_DIMEN);
+                    bitmap = rotateImage(tempBittmap, 180);
+                    ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                    bitmap.compress(Bitmap.CompressFormat.PNG,100, bos);
+                    byte[] bitmapdata = bos.toByteArray();
 
-                    bitmap = BitmapFactory.decodeFile(image.getAbsolutePath());
+                    //write the bytes in file
+                    FileOutputStream fos = new FileOutputStream(image);
+                    fos.write(bitmapdata);
+                    fos.flush();
+                    fos.close();
 
                     // Add final bitmap to caches
                     addBitmapToCache(imageUrl, bitmap);
                 }
 
 
+            } else {
+                imageModel.setImageUriFromUrl(getApplicationContext());
             }
 
-            imageModel.setUrl(imageUrl);
-            imageModel.setBitmap(bitmap);
+            imageModel.setBitmap(getApplicationContext(), bitmap);
         } catch (IOException e) {
-            Log.e(TAG, "download image:",e);
+            Log.e(TAG, "download image:", e);
             imageModel.setSuccess(false);
-        }finally {
-            if(output != null){
+        } finally {
+            if (output != null) {
                 try {
                     output.close();
-                } catch (IOException e) {}
+                } catch (IOException e) {
+                }
             }
         }
         ImageMutableRepository.getInstance().accept(imageModel);
@@ -158,10 +174,6 @@ public class ImageThiefService extends IntentService {
 
 
     private void addBitmapToCache(String key, Bitmap bitmap) throws IOException {
-        // Add to memory cache as before
-        if (((ImageThiefApp) getApplication()).getBitmapFromMemCache(key) == null) {
-            ((ImageThiefApp) getApplication()).addBitmapToMemoryCache(key, bitmap);
-        }
 
         if (mDiskLruCache == null) {
             return;
@@ -175,7 +187,7 @@ public class ImageThiefService extends IntentService {
                 OutputStream out = null;
                 try {
                     String hashKey = hashKeyForDisk(key);
-                    Log.d(TAG, "add hash: "+hashKey);
+                    Log.d(TAG, "add hash: " + hashKey);
                     DiskLruCache.Snapshot snapshot = mDiskLruCache.get(hashKey);
                     if (snapshot == null) {
                         final DiskLruCache.Editor editor = mDiskLruCache.edit(hashKey);
@@ -213,13 +225,14 @@ public class ImageThiefService extends IntentService {
             while (mDiskCacheStarting) {
                 try {
                     mDiskCacheLock.wait();
-                } catch (InterruptedException e) {}
+                } catch (InterruptedException e) {
+                }
             }
             if (mDiskLruCache != null) {
                 InputStream inputStream = null;
                 try {
                     String hashKey = hashKeyForDisk(key);
-                    Log.d(TAG, "get hash: "+hashKey);
+                    Log.d(TAG, "get hash: " + hashKey);
                     final DiskLruCache.Snapshot snapshot = mDiskLruCache.get(hashKey);
                     if (snapshot != null) {
                         if (BuildConfig.DEBUG) {
@@ -242,7 +255,8 @@ public class ImageThiefService extends IntentService {
                         if (inputStream != null) {
                             inputStream.close();
                         }
-                    } catch (IOException e) {}
+                    } catch (IOException e) {
+                    }
                 }
             }
             return bitmap;
@@ -268,8 +282,9 @@ public class ImageThiefService extends IntentService {
             }
         }
 
-        return cachePath == null? null: new File(cachePath + File.separator + uniqueName);
+        return cachePath == null ? null : new File(cachePath + File.separator + uniqueName);
     }
+
     private File getPictureDir(String uniqueName) {
         // Check if media is mounted or storage is built-in, if so, try and use external dir
         // otherwise use internal cache dir
@@ -285,7 +300,15 @@ public class ImageThiefService extends IntentService {
             }
         }
 
-        return path == null? null: new File(path + File.separator + uniqueName);
+        return path == null ? null : new File(path + File.separator + uniqueName);
+    }
+
+    private Bitmap rotateImage(Bitmap src, float degree)
+    {
+        Matrix matrix = new Matrix();
+        matrix.postRotate(degree);
+        Bitmap bmp = Bitmap.createBitmap(src, 0, 0, src.getWidth(), src.getHeight(), matrix, true);
+        return bmp;
     }
 
     private String hashKeyForDisk(String key) {
