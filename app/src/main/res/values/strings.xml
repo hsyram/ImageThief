@@ -2,5 +2,5 @@
     <string name="app_name">ImageThief</string>
     <string name="download">download</string>
     <string name="download_hint">Enter the url</string>
-    <string name="invalid_url_error">Invalid URL!</string>
+    <string name="download_error">Download unsuccessful!</string>
 </resources>

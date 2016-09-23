@@ -1,13 +1,8 @@
 package com.idtmessaging.imagethief;
 
-import android.content.Context;
-import android.content.Intent;
-import android.os.IBinder;
 import android.support.test.InstrumentationRegistry;
-import android.support.test.annotation.Beta;
 import android.support.test.rule.ServiceTestRule;
 import android.support.test.runner.AndroidJUnit4;
-import android.support.test.runner.intent.IntentMonitorRegistry;
 
 import com.idtmessaging.imagethief.reactive.Updatable;
 import com.idtmessaging.imagethief.util.ImageModel;
@@ -22,14 +17,16 @@ import org.junit.runner.RunWith;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeoutException;
 
-import static org.hamcrest.Matchers.any;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Instrumentation test, which will execute on an Android device.
+ * very basic test for checking if the service is working correctly in both success and faild case
  *
- * @see <a href="http://d.android.com/tools/testing">Testing documentation</a>
  */
+// TODO: 24/09/16 error in internet dc case
+// TODO: 24/09/16 check multi threading and concurrency
 @RunWith(AndroidJUnit4.class)
 public class ExampleInstrumentedTest {
     private CountDownLatch latch;

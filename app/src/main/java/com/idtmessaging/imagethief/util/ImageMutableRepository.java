@@ -12,6 +12,9 @@ import java.util.HashSet;
 
 
 /**
+ * Observable for communicating between service and other components.
+ * I used very basic structure of Observable pattern for this application.
+ * better approach is using third-party libraries (like agera)
  * Created by mary on 23/09/16.
  */
 
@@ -34,13 +37,11 @@ public class ImageMutableRepository implements Observable, Supplier<ImageModel>,
 
     @Override
     public void addUpdatable(@NonNull Updatable updatable) {
-        Log.e(TAG,"addUpdatable");
         mUpdatables.add(updatable);
     }
 
     @Override
     public void removeUpdatable(@NonNull Updatable updatable) {
-        Log.e(TAG,"removeUpdatable");
         if(mUpdatables.contains(updatable)) {
             mUpdatables.remove(updatable);
         }
@@ -48,7 +49,6 @@ public class ImageMutableRepository implements Observable, Supplier<ImageModel>,
 
     @Override
     public void accept(@NonNull ImageModel value) {
-        Log.e(TAG,"accept");
         mImageModel = value;
         for (Updatable updatable: mUpdatables){
             updatable.update();

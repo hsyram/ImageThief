@@ -4,7 +4,6 @@ import android.app.IntentService;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Matrix;
 import android.os.Environment;
 import android.support.annotation.Nullable;
@@ -28,22 +27,21 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
 import static android.os.Environment.DIRECTORY_PICTURES;
-import static com.idtmessaging.imagethief.util.ImageResizer.calculateInSampleSize;
 
 /**
  * An {@link IntentService} subclass for handling asynchronous image download requests in
  * a service on a separate handler thread.
- * <p>
- * helper methods.
+ * Created by mary on 23/09/16.
  */
 public class ImageThiefService extends IntentService {
     private static final String TAG = "ImageThiefService";
     private static final String ACTION_DOWNLOAD = "com.idtmessaging.imagethief.action.DOWNLOAD";
 
-    public static final String EXTRA_PARAM_URL = "com.idtmessaging.imagethief.extra.PARAM_URL";
+    private static final String EXTRA_PARAM_URL = "com.idtmessaging.imagethief.extra.PARAM_URL";
 
     private static final int IMAGE_MAX_DIMEN = 500;
 
+    //Object for working with disk-cache
     private DiskLruCache mDiskLruCache;
     private final Object mDiskCacheLock = new Object();
     private boolean mDiskCacheStarting = true;
@@ -73,6 +71,7 @@ public class ImageThiefService extends IntentService {
     protected void onHandleIntent(Intent intent) {
         if (intent != null) {
 
+            //init disk-cache
             if (mDiskLruCache == null) {
                 synchronized (mDiskCacheLock) {
                     File cacheDir = getDiskCacheDir(DISK_CACHE_SUBDIR);
@@ -100,8 +99,8 @@ public class ImageThiefService extends IntentService {
     }
 
     /**
-     * Handle action Foo in the provided background thread with the provided
-     * parameters.
+     * Handle action getImage in the provided background thread with the provided
+     * parameters. first check Disk-cache, if the image was not saved there then download it from internet.
      */
     private void handleActionDownload(String imageUrl) {
         ImageModel imageModel = new ImageModel();
@@ -115,15 +114,20 @@ public class ImageThiefService extends IntentService {
             if (bitmap == null) { // Not found in disk cache
                 // Process as normal
 
+                // TODO: 24/09/16 Use third-party libraries for http request in real project
+                // there are a few library like OpenHttp and Volley(my preference) for handling
+                // http request which have lots of benefit such as HTTP/2 support, Transparent GZIP, Response caching and etc.
+                // I just used android build-in class because it was simple and enough for this sample project.
+
                 java.net.URL url = new java.net.URL(imageUrl);
                 HttpURLConnection connection = (HttpURLConnection) url
                         .openConnection();
                 connection.setDoInput(true);
                 connection.connect();
+                //reading from web
                 InputStream input = connection.getInputStream();
-
+                //saving actual image on device
                 String baseName = imageUrl.substring(imageUrl.lastIndexOf('/') + 1, imageUrl.length());
-                Log.d(TAG, "image name:" + baseName);
                 File image = getPictureDir(System.currentTimeMillis() + baseName);
                 if (image != null) {
                     output = new FileOutputStream(image);
@@ -134,8 +138,11 @@ public class ImageThiefService extends IntentService {
                         output.write(buffer, 0, read);
                     }
                     output.flush();
+                    //save uri of image
                     imageModel.setUri(this, image.getAbsolutePath());
 
+                    // TODO: 23/09/16 I'm resizing actual image for preventing of out-of-memory error
+                    // I should use render script for rotating actual image without resizing it.
                     Bitmap tempBittmap = ImageResizer.decodeSampledBitmapFromFile(image.getAbsolutePath(), IMAGE_MAX_DIMEN, IMAGE_MAX_DIMEN);
                     bitmap = rotateImage(tempBittmap, 180);
                     ByteArrayOutputStream bos = new ByteArrayOutputStream();
@@ -169,17 +176,21 @@ public class ImageThiefService extends IntentService {
                 }
             }
         }
+        //notify Updatables of finishing task and send final-image to them.
         ImageMutableRepository.getInstance().accept(imageModel);
     }
 
-
+    /**
+     * save downloaded image on disk-cache
+     * @param key url of image
+     * @param bitmap bitmap of image
+     * @throws IOException
+     */
     private void addBitmapToCache(String key, Bitmap bitmap) throws IOException {
 
         if (mDiskLruCache == null) {
             return;
         }
-
-        // Also add to disk cache
 
         synchronized (mDiskCacheLock) {
             // Add to disk cache
@@ -187,7 +198,6 @@ public class ImageThiefService extends IntentService {
                 OutputStream out = null;
                 try {
                     String hashKey = hashKeyForDisk(key);
-                    Log.d(TAG, "add hash: " + hashKey);
                     DiskLruCache.Snapshot snapshot = mDiskLruCache.get(hashKey);
                     if (snapshot == null) {
                         final DiskLruCache.Editor editor = mDiskLruCache.edit(hashKey);
@@ -219,6 +229,13 @@ public class ImageThiefService extends IntentService {
         }
     }
 
+    /**
+     * check Memory-cache for image
+     * @param key url of image
+     * @return bitmap of image if exit, null otherwise
+     * @throws IOException
+     */
+    @Nullable
     private Bitmap getBitmapFromDiskCache(String key) throws IOException {
         Bitmap bitmap = null;
         synchronized (mDiskCacheLock) {
@@ -232,7 +249,7 @@ public class ImageThiefService extends IntentService {
                 InputStream inputStream = null;
                 try {
                     String hashKey = hashKeyForDisk(key);
-                    Log.d(TAG, "get hash: " + hashKey);
+                    // TODO: 23/09/16 I have a bug here, snapshot always is null
                     final DiskLruCache.Snapshot snapshot = mDiskLruCache.get(hashKey);
                     if (snapshot != null) {
                         if (BuildConfig.DEBUG) {
@@ -265,7 +282,7 @@ public class ImageThiefService extends IntentService {
 
 
     // Creates a unique subdirectory of the designated app cache directory. Tries to use external
-// but if not mounted, falls back on internal storage.
+    // but if not mounted, falls back on internal storage.
     @Nullable
     private File getDiskCacheDir(String uniqueName) {
         // Check if media is mounted or storage is built-in, if so, try and use external cache dir
@@ -285,6 +302,12 @@ public class ImageThiefService extends IntentService {
         return cachePath == null ? null : new File(cachePath + File.separator + uniqueName);
     }
 
+    /**
+     * create a file in Public Directory if not mounted, otherwise use internal Storage
+     * @param uniqueName name of file
+     * @return created file or null in error case
+     */
+    @Nullable
     private File getPictureDir(String uniqueName) {
         // Check if media is mounted or storage is built-in, if so, try and use external dir
         // otherwise use internal cache dir
@@ -305,12 +328,18 @@ public class ImageThiefService extends IntentService {
 
     private Bitmap rotateImage(Bitmap src, float degree)
     {
+        // TODO: 24/09/16 should be done using render-script
         Matrix matrix = new Matrix();
         matrix.postRotate(degree);
         Bitmap bmp = Bitmap.createBitmap(src, 0, 0, src.getWidth(), src.getHeight(), matrix, true);
         return bmp;
     }
 
+    /**
+     * convert string contain uri to hashKey
+     * @param key ImageUrl
+     * @return hashKey
+     */
     private String hashKeyForDisk(String key) {
         String cacheKey;
         try {

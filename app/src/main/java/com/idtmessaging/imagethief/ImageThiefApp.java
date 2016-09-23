@@ -5,6 +5,7 @@ import android.graphics.Bitmap;
 import android.support.v4.util.LruCache;
 
 /**
+ * Init Memory-cache for making UI faster.
  * Created by mary on 23/09/16.
  */
 

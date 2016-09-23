@@ -8,18 +8,22 @@ import android.net.Uri;
 import com.idtmessaging.imagethief.ImageThiefApp;
 
 /**
+ * Model for working with Image.
  * Created by mary on 23/09/16.
  */
 
 public class ImageModel {
-    public static final String SP_NAME = "ImageThief";
+    private static final String SP_NAME = "ImageThief";
 
     public ImageModel() {
+        //simple constructor
     }
 
     public ImageModel(Context context, String mUrl) {
         this.mUrl = mUrl;
+        //check device storage for image
         setImageUriFromUrl(context);
+        //check memory-cache for image of this url
         this.mBitmap = ((ImageThiefApp) context).getBitmapFromMemCache(mUrl);
     }
 
@@ -43,6 +47,7 @@ public class ImageModel {
     public void setBitmap(Context context,Bitmap bitmap) {
         this.mBitmap = bitmap;
 
+        //save bitmap to memory-cache
         if(mUrl != null) {
             ((ImageThiefApp) context).addBitmapToMemoryCache(mUrl, mBitmap);
         }
@@ -63,6 +68,8 @@ public class ImageModel {
     public void setUri(Context context, String filePath) {
         this.mUri = Util.getImageContentUri(context, filePath);
 
+        //save location of actual image (uri) on the device.
+        // TODO: 24/09/16 ImageModel should be saved on db not SharedPreferences.
         if(getUrl() != null) {
             SharedPreferences preferences = context.getSharedPreferences(SP_NAME, Context.MODE_PRIVATE);
             SharedPreferences.Editor editor = preferences.edit();
@@ -73,10 +80,13 @@ public class ImageModel {
     }
 
     public void setImageUriFromUrl(Context context){
-        SharedPreferences preferences = context.getSharedPreferences(SP_NAME,Context.MODE_PRIVATE);
-        String filePath = preferences.getString(mUrl,"");
-        if(!filePath.equals("")){
-            mUri = Util.getImageContentUri(context,filePath);
+        //check storage(SharedPreferences) for location of image.
+        if(mUrl != null) {
+            SharedPreferences preferences = context.getSharedPreferences(SP_NAME, Context.MODE_PRIVATE);
+            String filePath = preferences.getString(mUrl, "");
+            if (!filePath.equals("")) {
+                mUri = Util.getImageContentUri(context, filePath);
+            }
         }
     }
 }
